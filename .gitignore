@@ -216,3 +216,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# DensityChunker — large data and tracking
+datasets/
+.hf_cache/
+STATUS.md
