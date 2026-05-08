@@ -1,0 +1,162 @@
+"""DensityChunker — NarrativeQA 1024-d. Tunes sigma on FULL dataset via Optuna, saves best."""
+import json, pickle, sys, time
+from pathlib import Path
+import numpy as np
+import optuna
+from rouge_score import rouge_scorer
+from tqdm import tqdm
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
+
+from src.chunkers.density import DensityChunker
+from src.data.loader import load_narrativeqa
+from src.data.types import Chunk
+from src.embedders.embedder import BatchEmbedder
+from src.evaluation.intrinsic import compute_intrinsic_metrics
+from src.retrieval.indexer import ChromaIndexer
+from src.retrieval.retriever import ChromaRetriever
+
+CACHE_PATH = PROJECT_ROOT / "results" / "nqa_docs_cache_1024.pkl"
+OUT_PATH = PROJECT_ROOT / "results" / "main" / "density_narrativeqa_1024d.json"
+DIM = 1024
+N_TRIALS = 10
+CHUNK_BATCH = 64
+
+ROUGE = rouge_scorer.RougeScorer(["rougeL"], use_stemmer=True)
+
+_doc_data = None
+_samples = None
+_embedder = None
+
+
+def objective(trial) -> float:
+    sigma = trial.suggest_float("sigma_position", 3, 50)
+    chunker = DensityChunker(sigma_position=sigma, smoothing_sigma=2.0, valley_prominence=0.3, min_sentences=3, max_sentences=40)
+
+    all_chunks = {}
+    for doc_id, (sentences, sent_embs) in tqdm(_doc_data.items(), desc=f"    Chunking σ={sigma:.1f}", unit="doc", leave=False):
+        chunks = chunker.chunk_document(sentences, sent_embs)
+        for ch in chunks:
+            ch.metadata["doc_id"] = doc_id
+        all_chunks[doc_id] = chunks
+
+    flat_chunks = [Chunk(text=ch.text, sentences=ch.sentences, start_char=ch.start_char,
+        end_char=ch.end_char, chunk_id=f"{doc_id}::{i}", metadata={"doc_id": ch.metadata["doc_id"]})
+        for doc_id, chunks in all_chunks.items() for i, ch in enumerate(chunks)]
+
+    indexer = ChromaIndexer(collection_name=f"opt_nqa1024_{trial.number}")
+    retriever = ChromaRetriever(indexer=indexer, embedder=_embedder, k=5)
+    chunk_embs = _embedder.encode([ch.text for ch in flat_chunks], batch_size=CHUNK_BATCH)
+    metadatas = [{"doc_id": ch.metadata["doc_id"]} for ch in flat_chunks]
+    indexer.add_chunks(chunk_ids=[ch.chunk_id for ch in flat_chunks], embeddings=chunk_embs, metadatas=metadatas)
+
+    rl_scores = []
+    for sample in tqdm(_samples, desc=f"    Retrieving σ={sigma:.1f}", unit="q", leave=False):
+        results = retriever.retrieve(sample.question, k=5, where={"doc_id": sample.sample_id})
+        texts = []
+        for chunk_id, _, _ in results:
+            doc = chunk_id.rsplit("::", 1)[0]
+            idx = int(chunk_id.rsplit("::", 1)[-1])
+            clist = all_chunks.get(doc, [])
+            if idx < len(clist):
+                texts.append(clist[idx].text[:500])
+        combined = " ".join(texts)
+        best_rl = max((ROUGE.score(a, combined)["rougeL"].fmeasure for a in sample.answers), default=0.0)
+        rl_scores.append(best_rl)
+    avg = float(np.mean(rl_scores)) if rl_scores else 0.0
+    indexer.delete_collection()
+    return avg
+
+
+def main():
+    global _doc_data, _samples, _embedder
+
+    print(f"Loading cache ({DIM}-d)...")
+    with open(CACHE_PATH, "rb") as f:
+        _doc_data = pickle.load(f)
+    print(f"  {len(_doc_data)} docs")
+
+    print("Loading NarrativeQA...")
+    nqa = load_narrativeqa()
+    _samples = nqa.samples
+    print(f"  {len(_samples)} samples")
+
+    print(f"Loading embedder (BGE-M3, {DIM}-d)...")
+    _embedder = BatchEmbedder(model_name="BAAI/bge-m3", output_dim=DIM, max_seq_length=512)
+
+    print(f"\nOptuna tuning on FULL dataset ({N_TRIALS} trials)...")
+    sampler = optuna.samplers.TPESampler(seed=42)
+    study = optuna.create_study(direction="maximize", sampler=sampler)
+    for i in tqdm(range(N_TRIALS), desc="  Optuna trials", unit="trial"):
+        study.optimize(objective, n_trials=1, show_progress_bar=False)
+        tqdm.write(f"    Trial {i}: σ={study.trials[-1].params['sigma_position']:.1f} → ROUGE-L={study.trials[-1].value:.4f}  (best σ={study.best_params['sigma_position']:.1f}, ROUGE-L={study.best_value:.4f})")
+
+    best_sigma = study.best_params["sigma_position"]
+    print(f"\nBest sigma: {best_sigma:.1f} → ROUGE-L={study.best_value:.4f}")
+
+    print(f"\nFinal run with σ={best_sigma:.1f}...")
+    chunker = DensityChunker(sigma_position=best_sigma, smoothing_sigma=2.0, valley_prominence=0.3, min_sentences=3, max_sentences=40)
+
+    all_chunks = {}
+    intrinsic_scores = []
+    for doc_id, (sentences, sent_embs) in tqdm(_doc_data.items(), desc="  Chunking", unit="doc", leave=False):
+        chunks = chunker.chunk_document(sentences, sent_embs)
+        for ch in chunks:
+            ch.metadata["doc_id"] = doc_id
+        all_chunks[doc_id] = chunks
+        intrinsic_scores.append(compute_intrinsic_metrics(chunks, sent_embs))
+
+    intrinsic = {}
+    if intrinsic_scores:
+        for key in intrinsic_scores[0]:
+            intrinsic[key] = float(np.mean([s[key] for s in intrinsic_scores]))
+
+    flat_chunks = [Chunk(text=ch.text, sentences=ch.sentences, start_char=ch.start_char,
+        end_char=ch.end_char, chunk_id=f"{doc_id}::{i}", metadata={"doc_id": ch.metadata["doc_id"]})
+        for doc_id, chunks in all_chunks.items() for i, ch in enumerate(chunks)]
+
+    indexer = ChromaIndexer(collection_name=f"final_nqa1024")
+    retriever = ChromaRetriever(indexer=indexer, embedder=_embedder, k=5)
+    chunk_embs = _embedder.encode([ch.text for ch in flat_chunks], batch_size=CHUNK_BATCH)
+    metadatas = [{"doc_id": ch.metadata["doc_id"]} for ch in flat_chunks]
+    indexer.add_chunks(chunk_ids=[ch.chunk_id for ch in flat_chunks], embeddings=chunk_embs, metadatas=metadatas)
+
+    rl_scores = []
+    for sample in tqdm(_samples, desc="  Retrieving", unit="q", leave=False):
+        results = retriever.retrieve(sample.question, k=5, where={"doc_id": sample.sample_id})
+        texts = []
+        for chunk_id, _, _ in results:
+            doc = chunk_id.rsplit("::", 1)[0]
+            idx = int(chunk_id.rsplit("::", 1)[-1])
+            clist = all_chunks.get(doc, [])
+            if idx < len(clist):
+                texts.append(clist[idx].text[:500])
+        combined = " ".join(texts)
+        best_rl = max((ROUGE.score(a, combined)["rougeL"].fmeasure for a in sample.answers), default=0.0)
+        rl_scores.append(best_rl)
+
+    avg_rouge_l = float(np.mean(rl_scores)) if rl_scores else 0.0
+    indexer.delete_collection()
+
+    result = {
+        "method": "density",
+        "dim": DIM,
+        "sigma": best_sigma,
+        "intrinsic": intrinsic,
+        "rouge_l": avg_rouge_l,
+        "total_chunks": sum(len(c) for c in all_chunks.values()),
+    }
+
+    OUT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(OUT_PATH, "w") as f:
+        json.dump([result], f, indent=2)
+
+    print(f"\n{'='*60}")
+    print(f"FINAL: DensityChunker σ={best_sigma} @ {DIM}-d")
+    print(f"  ROUGE-L={avg_rouge_l:.4f}  Chunks={result['total_chunks']}")
+    print(f"Saved to {OUT_PATH}")
+
+
+if __name__ == "__main__":
+    main()

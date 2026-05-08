@@ -56,7 +56,6 @@ class ChromaRetriever:
         distances = results.get("distances", [[0.0] * len(ids)])[0]
         metadatas = results.get("metadatas", [[{}] * len(ids)])[0]
 
-        # ChromaDB returns cosine distance; convert to similarity
         scores = [1.0 - d for d in distances]
 
         if self._reranker is not None:

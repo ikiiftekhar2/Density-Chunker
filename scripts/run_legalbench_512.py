@@ -21,13 +21,16 @@ from src.retrieval.retriever import ChromaRetriever
 
 CACHE_PATH = PROJECT_ROOT / "results" / "segmented_docs_cache_512.pkl"
 SENT_CACHE_PATH = PROJECT_ROOT / "results" / "legalbench_sentences_512.pkl"
-SENT_BATCH = 64   # sentence embedding batch size (kept small to avoid OOM)
-CHUNK_BATCH = 64  # chunk embedding batch size
+SENT_BATCH = 64
+CHUNK_BATCH = 64
 
 METHODS: list[BaseChunker] = [
     FixedSizeChunker(chunk_size=5),
     FixedSizeChunker(chunk_size=10),
+    FixedSizeChunker(chunk_size=40),
     RecursiveChunker(chunk_size=512, chunk_overlap=100),
+    SemanticChunker(threshold_percentile=3.0),
+    SemanticChunker(threshold_percentile=5.0),
     SemanticChunker(threshold_percentile=10.0),
 ]
 
@@ -139,7 +142,6 @@ def main():
             doc_data = pickle.load(f)
         print(f"  Loaded {len(doc_data)} docs")
     else:
-        # Step 1: segment sentences domain by domain (incremental saves)
         if SENT_CACHE_PATH.exists():
             print(f"Loading cached sentences from {SENT_CACHE_PATH}...")
             with open(SENT_CACHE_PATH, "rb") as f:
@@ -149,7 +151,6 @@ def main():
             lb_sentences = {}
             CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
 
-        # Process any domains not yet in the sentences cache
         domain_docs = {}
         for domain, corpus in corpora.items():
             domain_docs[domain] = {}
@@ -161,19 +162,16 @@ def main():
             if not docs:
                 print(f"  {domain}: all {len(corpora[domain].documents)} docs already cached, skipping")
                 continue
-            # MAUD docs are massive (200K-500K chars) — use tiny batch to avoid SIGKILL
             bs = 8 if domain == "maud" else 64
             print(f"Segmenting {domain} ({len(docs)} docs, batch_size={bs})...")
             t0 = time.time()
             new_sentences = segment_docs(docs, nlp, batch_size=bs)
             print(f"  Done — {len(new_sentences)} docs in {time.time() - t0:.0f}s")
             lb_sentences.update(new_sentences)
-            # Save after each domain so we can resume if killed
             with open(SENT_CACHE_PATH, "wb") as f:
                 pickle.dump(lb_sentences, f)
             print(f"  Sentences cache updated ({len(lb_sentences)} total)")
 
-        # Step 2: embed sentences
         print("Loading embedder (BGE-M3, 512-d)...")
         embedder = BatchEmbedder(model_name="BAAI/bge-m3", output_dim=512, max_seq_length=512)
 

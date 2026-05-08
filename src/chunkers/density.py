@@ -36,10 +36,6 @@ class DensityChunker(BaseChunker):
     def name(self) -> str:
         return "density"
 
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
-
     def chunk_document(
         self,
         sentences: list[Sentence],
@@ -58,10 +54,6 @@ class DensityChunker(BaseChunker):
         valleys = self.find_valleys(density_smooth)
         boundaries = self.enforce_constraints(valleys, density_smooth, n)
         return self._assemble_chunks(sentences, boundaries)
-
-    # ------------------------------------------------------------------
-    # Component functions (public for ablation / plotting)
-    # ------------------------------------------------------------------
 
     @staticmethod
     def compute_similarity_matrix(embeddings: np.ndarray) -> np.ndarray:
@@ -87,7 +79,6 @@ class DensityChunker(BaseChunker):
         if self.valley_prominence == 0:
             return [0]
 
-        # find_peaks on negative density gives valleys
         threshold = self.valley_prominence * density.std()
         valleys, _ = find_peaks(
             -density, prominence=threshold if threshold > 0 else 0.01
@@ -105,10 +96,8 @@ class DensityChunker(BaseChunker):
             if v > 0 and v < n:
                 boundaries.append(v)
 
-        # Sort + dedupe
         boundaries = sorted(set(boundaries))
 
-        # Merge small chunks
         merged = [boundaries[0]]
         for i in range(1, len(boundaries)):
             size = boundaries[i] - merged[-1]
@@ -118,14 +107,11 @@ class DensityChunker(BaseChunker):
                 else n - merged[-1]
             )
             if chunk_size < self.min_sentences and i + 1 < len(boundaries):
-                # Skip this boundary — merge forward
                 continue
             elif boundaries[i] - merged[-1] < self.min_sentences and len(merged) > 1:
-                # Too small from the left — skip
                 continue
             merged.append(boundaries[i])
 
-        # Split large chunks at deepest internal valley
         split_result = []
         for i, start in enumerate(merged):
             end = merged[i + 1] if i + 1 < len(merged) else n
@@ -140,10 +126,6 @@ class DensityChunker(BaseChunker):
 
         return sorted(set(split_result))
 
-    # ------------------------------------------------------------------
-    # Helpers
-    # ------------------------------------------------------------------
-
     def _resolve_sigma(self, n: int) -> float:
         if isinstance(self.sigma_position, (int, float)):
             return float(self.sigma_position)
@@ -156,6 +138,5 @@ class DensityChunker(BaseChunker):
         valleys, props = find_peaks(-segment, prominence=segment.std() * 0.3)
         if len(valleys) == 0:
             return []
-        # Pick the single deepest valley
         best_idx = valleys[np.argmin(segment[valleys])]
         return [best_idx]

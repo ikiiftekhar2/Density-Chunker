@@ -31,7 +31,7 @@ class ChromaIndexer:
 
         self._collection = self._client.get_or_create_collection(
             name=collection_name,
-            embedding_function=None,  # We supply embeddings directly
+            embedding_function=None,
             metadata={"hnsw:space": "cosine"},
         )
 
@@ -59,7 +59,6 @@ class ChromaIndexer:
 
         embeddings_list = embeddings.astype(np.float32).tolist()
 
-        # ChromaDB has a max batch size; split large inserts
         max_batch = 4000
         for start in range(0, len(chunk_ids), max_batch):
             end = start + max_batch

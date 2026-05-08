@@ -26,7 +26,10 @@ CHUNK_BATCH = 64
 METHODS: list[BaseChunker] = [
     FixedSizeChunker(chunk_size=5),
     FixedSizeChunker(chunk_size=10),
+    FixedSizeChunker(chunk_size=40),
     RecursiveChunker(chunk_size=512, chunk_overlap=100),
+    SemanticChunker(threshold_percentile=3.0),
+    SemanticChunker(threshold_percentile=5.0),
     SemanticChunker(threshold_percentile=10.0),
 ]
 

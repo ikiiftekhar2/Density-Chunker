@@ -57,14 +57,12 @@ def _load_single_domain(
     documents = {}
     queries = []
 
-    # Try local data first
     local_corpus_dir = base_dir / "data" / "corpus" / domain
     local_bench_file = base_dir / "data" / "benchmarks" / f"{domain}.json"
 
     if mini:
         local_bench_file = base_dir / "data" / "benchmarks" / f"{domain}_mini.json"
 
-    # Load corpus documents
     if local_corpus_dir.exists():
         for txt_file in sorted(local_corpus_dir.glob("*.txt")):
             text = txt_file.read_text(encoding="utf-8", errors="replace")
@@ -76,17 +74,15 @@ def _load_single_domain(
                 metadata={"domain": domain},
             )
 
-    # Load queries
     if local_bench_file.exists():
         raw = json.loads(local_bench_file.read_text())
-        bench_data = raw.get("tests", raw)  # Handle {"tests": [...]} format
+        bench_data = raw.get("tests", raw)
         if isinstance(bench_data, dict):
             bench_data = [bench_data]
         for i, item in enumerate(bench_data):
             query_text = item.get("query", item.get("input", ""))
             gold_spans = []
 
-            # Handle both formats: snippets (local) and expected_output (HF)
             snippets = item.get("snippets", [])
             if isinstance(snippets, str):
                 snippets = json.loads(snippets)
@@ -110,7 +106,6 @@ def _load_single_domain(
                 )
             )
     else:
-        # Try HuggingFace cache
         hf_file = base_dir / "huggingface" / f"{domain}.json"
         if mini:
             hf_file = base_dir / "huggingface" / f"{domain}_mini.json"

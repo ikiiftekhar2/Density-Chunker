@@ -67,7 +67,6 @@ class BatchEmbedder:
             embeddings = embeddings[:, :self.output_dim]
 
         if self.output_dim < self._native_dim and self.normalize:
-            # Re-normalize after truncation (norm slightly < 1.0 otherwise)
             norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
             norms = np.where(norms == 0, 1.0, norms)
             embeddings = embeddings / norms

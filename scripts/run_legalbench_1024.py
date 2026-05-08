@@ -22,7 +22,10 @@ from src.retrieval.retriever import ChromaRetriever
 METHODS: list[BaseChunker] = [
     FixedSizeChunker(chunk_size=5),
     FixedSizeChunker(chunk_size=10),
+    FixedSizeChunker(chunk_size=40),
     RecursiveChunker(chunk_size=512, chunk_overlap=100),
+    SemanticChunker(threshold_percentile=3.0),
+    SemanticChunker(threshold_percentile=5.0),
     SemanticChunker(threshold_percentile=10.0),
 ]
 
@@ -33,7 +36,7 @@ def fix_cache_keys(cache: dict) -> dict:
     for key, val in cache.items():
         parts = key.split("/", 1)
         if len(parts) == 2 and parts[0] == parts[1].split("/")[0]:
-            fixed[parts[1]] = val  # Strip first domain/
+            fixed[parts[1]] = val
         else:
             fixed[key] = val
     return fixed
@@ -105,7 +108,6 @@ def main():
         cache = pickle.load(f)
     print(f"  {len(cache)} docs in cache")
 
-    # Fix double-domain keys
     doc_data = fix_cache_keys(cache)
     print(f"  Fixed keys: {len(doc_data)} docs")
 
@@ -124,7 +126,6 @@ def main():
         print(f"\n{'='*50}\nRunning {chunker.name}...\n{'='*50}")
         result = run_method(chunker, doc_data, all_queries, embedder)
         results.append(result)
-        # Print quick summary
         r = result["retrieval"]
         print(f"  R@1={r['recall@1']:.4f}  R@5={r['recall@5']:.4f}  R@10={r['recall@10']:.4f}  MRR={r['mrr']:.4f}")
         print(f"  Intrinsic: cohesion={result['intrinsic'].get('cohesion',0):.4f} separation={result['intrinsic'].get('separation',0):.4f}")

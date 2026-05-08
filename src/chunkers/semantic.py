@@ -38,21 +38,17 @@ class SemanticChunker(BaseChunker):
         if n <= self.min_sentences:
             return self._assemble_chunks(sentences, [0])
 
-        # Compute adjacent cosine similarities
         adj_sims = np.array([
             float(cosine_similarity([embeddings[i]], [embeddings[i + 1]])[0, 0])
             for i in range(n - 1)
         ])
 
-        # Threshold at given percentile of the similarity distribution
         threshold = np.percentile(adj_sims, self.threshold_percentile)
 
-        # Break where similarity drops below threshold
         boundaries = [0]
         i = 0
         while i < n - 1:
             if adj_sims[i] < threshold:
-                # Don't create a chunk smaller than min_sentences
                 if i + 1 - boundaries[-1] >= self.min_sentences:
                     boundaries.append(i + 1)
             i += 1

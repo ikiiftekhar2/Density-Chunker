@@ -42,7 +42,6 @@ class RecursiveChunker(BaseChunker):
         )
         text_chunks = splitter.split_text(full_text)
 
-        # Map text chunks back to sentence boundaries via character alignment
         chunks: list[Chunk] = []
         pos = 0
         for ci, tc in enumerate(text_chunks):
@@ -52,7 +51,6 @@ class RecursiveChunker(BaseChunker):
             end = start + len(tc)
             pos = end
 
-            # Find which sentences overlap this character span
             chunk_sents = [
                 s for s in sentences
                 if s.end_char > start and s.start_char < end
