@@ -220,4 +220,6 @@ __marimo__/
 # DensityChunker — large data and tracking
 datasets/
 .hf_cache/
-STATUS.md
+results/
+*.pkl
+status.md
