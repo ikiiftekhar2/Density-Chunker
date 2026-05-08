@@ -1,0 +1,54 @@
+[
+  {
+    "method": "fixed-5",
+    "intrinsic": {
+      "n_chunks": 310.92,
+      "cohesion": 0.50277657266086,
+      "separation": 0.8129031054903337,
+      "size_cov": 0.036417598974697665,
+      "avg_chunk_sentences": 4.984637673391236
+    },
+    "rouge_l": 0.014077628103680304,
+    "time_sec": 401.0,
+    "total_chunks": 62184
+  },
+  {
+    "method": "fixed-10",
+    "intrinsic": {
+      "n_chunks": 155.765,
+      "cohesion": 0.4956264924160035,
+      "separation": 0.8802002772411841,
+      "size_cov": 0.05984015082927271,
+      "avg_chunk_sentences": 9.923406620997172
+    },
+    "rouge_l": 0.01101886885446958,
+    "time_sec": 341.2,
+    "total_chunks": 31153
+  },
+  {
+    "method": "recursive-512-100",
+    "intrinsic": {
+      "n_chunks": 266.75,
+      "cohesion": 0.5049265243522539,
+      "separation": 0.8499467891479608,
+      "size_cov": 0.40557561483216886,
+      "avg_chunk_sentences": 6.1305187268345485
+    },
+    "rouge_l": 0.01329366786726169,
+    "time_sec": 423.3,
+    "total_chunks": 53350
+  },
+  {
+    "method": "semantic-p10",
+    "intrinsic": {
+      "n_chunks": 116.88,
+      "cohesion": 0.48486396602868337,
+      "separation": 0.8416575454403409,
+      "size_cov": 0.8963629799654317,
+      "avg_chunk_sentences": 13.305485678640666
+    },
+    "rouge_l": 0.011259894780411587,
+    "time_sec": 363.9,
+    "total_chunks": 23376
+  }
+]
